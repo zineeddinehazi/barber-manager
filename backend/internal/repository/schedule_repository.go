@@ -14,7 +14,6 @@ import (
 
 type ScheduleRepository interface {
 	GetApprovedSchedule(ctx context.Context, barberID string) ([]models.WorkSchedule, error)
-	GetExceptions(ctx context.Context, barberID string, from, to time.Time) ([]models.ScheduleException, error)
 	GetException(ctx context.Context, barberID string, date time.Time) (*models.ScheduleException, error)
 	// ProposeSchedule never mutates work_schedules directly - it only records
 	// an ApprovalRequest holding the proposed days as its payload.
@@ -56,31 +55,6 @@ func (r *PgScheduleRepository) GetApprovedSchedule(ctx context.Context, barberID
 		schedule = append(schedule, s)
 	}
 	return schedule, rows.Err()
-}
-
-func (r *PgScheduleRepository) GetExceptions(ctx context.Context, barberID string, from, to time.Time) ([]models.ScheduleException, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	rows, err := r.Pool.Query(ctx,
-		`SELECT id, barber_id, date::text, is_working, COALESCE(start_time::text, ''), COALESCE(end_time::text, ''), reason
-		 FROM schedule_exceptions WHERE barber_id = $1 AND date BETWEEN $2 AND $3 ORDER BY date`,
-		barberID, from, to,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	exceptions := make([]models.ScheduleException, 0)
-	for rows.Next() {
-		var e models.ScheduleException
-		if err := rows.Scan(&e.ID, &e.BarberID, &e.Date, &e.IsWorking, &e.StartTime, &e.EndTime, &e.Reason); err != nil {
-			return nil, err
-		}
-		exceptions = append(exceptions, e)
-	}
-	return exceptions, rows.Err()
 }
 
 func (r *PgScheduleRepository) GetException(ctx context.Context, barberID string, date time.Time) (*models.ScheduleException, error) {

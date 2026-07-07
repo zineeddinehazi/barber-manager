@@ -103,21 +103,6 @@ func (mr *MockScheduleRepositoryMockRecorder) GetException(ctx, barberID, date a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetException", reflect.TypeOf((*MockScheduleRepository)(nil).GetException), ctx, barberID, date)
 }
 
-// GetExceptions mocks base method.
-func (m *MockScheduleRepository) GetExceptions(ctx context.Context, barberID string, from, to time.Time) ([]models.ScheduleException, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetExceptions", ctx, barberID, from, to)
-	ret0, _ := ret[0].([]models.ScheduleException)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetExceptions indicates an expected call of GetExceptions.
-func (mr *MockScheduleRepositoryMockRecorder) GetExceptions(ctx, barberID, from, to any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExceptions", reflect.TypeOf((*MockScheduleRepository)(nil).GetExceptions), ctx, barberID, from, to)
-}
-
 // ProposeSchedule mocks base method.
 func (m *MockScheduleRepository) ProposeSchedule(ctx context.Context, shopID, barberID string, in models.ScheduleUpdateInput) (*models.ApprovalRequest, error) {
 	m.ctrl.T.Helper()

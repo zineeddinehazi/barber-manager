@@ -74,7 +74,7 @@ func main() {
 	customer := api.Group("")
 	customer.Use(middleware.Auth(cfg), middleware.RequireRole(models.RoleCustomer))
 	{
-		customer.POST("/reservations", handlers.CreateReservationHandler(reservationRepo, serviceRepo))
+		customer.POST("/reservations", handlers.CreateReservationHandler(reservationRepo, serviceRepo, barberRepo))
 		customer.GET("/reservations/me", handlers.ListOwnReservationsHandler(reservationRepo))
 		customer.PATCH("/reservations/:id/cancel", handlers.CancelReservationHandler(reservationRepo))
 		customer.POST("/reservations/:id/rating", handlers.CreateRatingHandler(ratingRepo))
@@ -91,7 +91,7 @@ func main() {
 		barber.POST("/schedule/exceptions", handlers.AddExceptionHandler(scheduleRepo))
 		barber.GET("/services", handlers.ListOwnServicesHandler(serviceRepo))
 		barber.PUT("/services/:id", handlers.ProposeServiceUpdateHandler(serviceRepo))
-		barber.GET("/reservations", handlers.ListBarberReservationsHandler(reservationRepo))
+		barber.GET("/reservations", handlers.ListBarberReservationsHandler(reservationRepo, loc))
 		barber.PATCH("/reservations/:id/complete", handlers.CompleteReservationHandler(reservationRepo))
 		barber.PATCH("/reservations/:id/no-show", handlers.NoShowReservationHandler(reservationRepo))
 		barber.GET("/approval-requests", handlers.ListOwnApprovalsHandler(approvalRepo))
