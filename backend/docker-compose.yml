@@ -1,0 +1,45 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: barber
+      POSTGRES_PASSWORD: barber
+      POSTGRES_DB: barbershop
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U barber -d barbershop"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  migrate:
+    image: migrate/migrate:v4.17.1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/migrations
+    command: [
+      "-path", "/migrations",
+      "-database", "postgres://barber:barber@postgres:5432/barbershop?sslmode=disable",
+      "up"
+    ]
+
+  api:
+    build: .
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://barber:barber@postgres:5432/barbershop?sslmode=disable
+      PORT: "8080"
+      JWT_SECRET: change-me-in-prod
+      JWT_EXPIRY_HOURS: "24"
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:
