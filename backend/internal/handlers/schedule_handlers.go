@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"time"
@@ -71,6 +72,7 @@ func GetAvailabilityHandler(
 	shops repository.ShopRepository,
 	schedules repository.ScheduleRepository,
 	services repository.ServiceRepository,
+	barbers repository.BarberRepository,
 	reservations repository.ReservationRepository,
 	loc *time.Location,
 ) gin.HandlerFunc {
@@ -91,46 +93,34 @@ func GetAvailabilityHandler(
 			return
 		}
 
+		barber, err := barbers.GetBarberProfile(c.Request.Context(), barberID)
+		if err != nil {
+			respondError(c, err)
+			return
+		}
+		if barber.ShopID != shopID {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "barber does not work at this shop"})
+			return
+		}
+
 		service, err := services.GetService(c.Request.Context(), serviceID)
 		if err != nil {
 			respondError(c, err)
 			return
 		}
+		if service.ShopID != shopID {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "service does not belong to this shop"})
+			return
+		}
+		if service.BarberID != nil && *service.BarberID != barberID {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "service does not belong to the requested barber"})
+			return
+		}
 
-		hoursList, err := shops.GetShopHours(c.Request.Context(), shopID)
+		shopHours, workSchedule, exception, err := loadDaySchedule(c.Request.Context(), shops, schedules, shopID, barberID, date)
 		if err != nil {
 			respondError(c, err)
 			return
-		}
-		weekday := int(date.Weekday())
-		var shopHours *models.ShopHours
-		for i := range hoursList {
-			if hoursList[i].Weekday == weekday {
-				shopHours = &hoursList[i]
-				break
-			}
-		}
-
-		schedule, err := schedules.GetApprovedSchedule(c.Request.Context(), barberID)
-		if err != nil {
-			respondError(c, err)
-			return
-		}
-		var workSchedule *models.WorkSchedule
-		for i := range schedule {
-			if schedule[i].Weekday == weekday {
-				workSchedule = &schedule[i]
-				break
-			}
-		}
-
-		exception, err := schedules.GetException(c.Request.Context(), barberID, date)
-		if err != nil && !errors.Is(err, repository.ErrNotFound) {
-			respondError(c, err)
-			return
-		}
-		if errors.Is(err, repository.ErrNotFound) {
-			exception = nil
 		}
 
 		dayStart := date
@@ -162,4 +152,51 @@ func GetAvailabilityHandler(
 			"slots":     slots,
 		})
 	}
+}
+
+// loadDaySchedule fetches the shop's hours, the barber's approved weekly
+// schedule, and any one-off exception, narrowed to the single weekday of
+// date - shared by GetAvailabilityHandler and CreateReservationHandler so
+// booking is validated against exactly the same rules availability displays.
+func loadDaySchedule(
+	ctx context.Context,
+	shops repository.ShopRepository,
+	schedules repository.ScheduleRepository,
+	shopID, barberID string,
+	date time.Time,
+) (*models.ShopHours, *models.WorkSchedule, *models.ScheduleException, error) {
+	hoursList, err := shops.GetShopHours(ctx, shopID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	weekday := int(date.Weekday())
+	var shopHours *models.ShopHours
+	for i := range hoursList {
+		if hoursList[i].Weekday == weekday {
+			shopHours = &hoursList[i]
+			break
+		}
+	}
+
+	schedule, err := schedules.GetApprovedSchedule(ctx, barberID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	var workSchedule *models.WorkSchedule
+	for i := range schedule {
+		if schedule[i].Weekday == weekday {
+			workSchedule = &schedule[i]
+			break
+		}
+	}
+
+	exception, err := schedules.GetException(ctx, barberID, date)
+	if err != nil && !errors.Is(err, repository.ErrNotFound) {
+		return nil, nil, nil, err
+	}
+	if errors.Is(err, repository.ErrNotFound) {
+		exception = nil
+	}
+
+	return shopHours, workSchedule, exception, nil
 }

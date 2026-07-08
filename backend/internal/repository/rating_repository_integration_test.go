@@ -31,7 +31,7 @@ func TestRatingRepository_RecalculatesAverage(t *testing.T) {
 			StartsAt: start, EndsAt: start.Add(30 * time.Minute),
 		})
 		require.NoError(t, err)
-		require.NoError(t, reservationRepo.UpdateStatus(ctx, res.ID, models.ReservationCompleted))
+		require.NoError(t, reservationRepo.UpdateStatus(ctx, res.ID, fx.BarberID, models.ReservationCompleted))
 		return res.ID
 	}
 

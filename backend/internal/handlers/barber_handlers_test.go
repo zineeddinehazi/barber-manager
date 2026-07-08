@@ -128,14 +128,14 @@ func TestSetBarberStatusHandler(t *testing.T) {
 		{
 			name: "success",
 			mockSetup: func(m *mocks.MockBarberRepository) {
-				m.EXPECT().SetActive(gomock.Any(), "b1", false).Return(nil)
+				m.EXPECT().SetActive(gomock.Any(), "b1", "shop1", false).Return(nil)
 			},
 			wantStatus: http.StatusNoContent,
 		},
 		{
-			name: "not found",
+			name: "not found or barber belongs to a different shop",
 			mockSetup: func(m *mocks.MockBarberRepository) {
-				m.EXPECT().SetActive(gomock.Any(), "b1", false).Return(repository.ErrNotFound)
+				m.EXPECT().SetActive(gomock.Any(), "b1", "shop1", false).Return(repository.ErrNotFound)
 			},
 			wantStatus: http.StatusNotFound,
 		},

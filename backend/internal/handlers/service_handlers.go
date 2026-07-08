@@ -9,13 +9,24 @@ import (
 	"barbermanager/internal/repository"
 )
 
-func CreateServiceHandler(services repository.ServiceRepository) gin.HandlerFunc {
+func CreateServiceHandler(services repository.ServiceRepository, barbers repository.BarberRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		shopID := c.Param("shopId")
 		var in models.ServiceCreateInput
 		if err := c.ShouldBindJSON(&in); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
+		}
+		if in.BarberID != nil {
+			barber, err := barbers.GetBarberProfile(c.Request.Context(), *in.BarberID)
+			if err != nil {
+				respondError(c, err)
+				return
+			}
+			if barber.ShopID != shopID {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "barber does not work at this shop"})
+				return
+			}
 		}
 		service, err := services.CreateService(c.Request.Context(), shopID, in)
 		if err != nil {

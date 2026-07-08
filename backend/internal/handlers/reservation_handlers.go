@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"barbermanager/internal/availability"
 	"barbermanager/internal/models"
 	"barbermanager/internal/repository"
 )
@@ -13,9 +14,20 @@ import (
 // CreateReservationHandler re-derives EndsAt from the service's duration
 // server-side; it never trusts a client-supplied end time. It also verifies
 // the requested barber actually offers the requested service (same shop, and
-// same barber if the service is barber-specific) and that the slot isn't in
-// the past - neither of which the DB constraints alone catch.
-func CreateReservationHandler(reservations repository.ReservationRepository, services repository.ServiceRepository, barbers repository.BarberRepository) gin.HandlerFunc {
+// same barber if the service is barber-specific), that the barber is active,
+// that the slot isn't in the past, and that the slot actually falls within
+// the barber's working hours (shop hours + approved schedule/exception) -
+// the same rules GetAvailabilityHandler uses to display slots, re-checked
+// here server-side per PLAN.md so a stale/forged client request can't book
+// outside them.
+func CreateReservationHandler(
+	reservations repository.ReservationRepository,
+	services repository.ServiceRepository,
+	barbers repository.BarberRepository,
+	shops repository.ShopRepository,
+	schedules repository.ScheduleRepository,
+	loc *time.Location,
+) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var in models.ReservationCreateInput
 		if err := c.ShouldBindJSON(&in); err != nil {
@@ -47,10 +59,37 @@ func CreateReservationHandler(reservations repository.ReservationRepository, ser
 			c.JSON(http.StatusBadRequest, gin.H{"error": "barber does not work at this service's shop"})
 			return
 		}
+		if !barber.IsActive {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "barber is not currently active"})
+			return
+		}
 
 		in.CustomerID = c.GetString("user_id")
 		in.ShopID = service.ShopID
 		in.EndsAt = in.StartsAt.Add(time.Duration(service.DurationMinutes) * time.Minute)
+
+		y, m, d := in.StartsAt.In(loc).Date()
+		date := time.Date(y, m, d, 0, 0, 0, 0, loc)
+		shopHours, workSchedule, exception, err := loadDaySchedule(c.Request.Context(), shops, schedules, in.ShopID, in.BarberID, date)
+		if err != nil {
+			respondError(c, err)
+			return
+		}
+		within, err := availability.Contains(availability.Input{
+			Date:         date,
+			Location:     loc,
+			ShopHours:    shopHours,
+			WorkSchedule: workSchedule,
+			Exception:    exception,
+		}, in.StartsAt, in.EndsAt)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if !within {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "requested slot is outside the barber's working hours"})
+			return
+		}
 
 		res, err := reservations.CreateReservation(c.Request.Context(), in)
 		if err != nil {
@@ -118,7 +157,8 @@ func ListBarberReservationsHandler(reservations repository.ReservationRepository
 func CompleteReservationHandler(reservations repository.ReservationRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
-		if err := reservations.UpdateStatus(c.Request.Context(), id, models.ReservationCompleted); err != nil {
+		barberID := c.GetString("user_id")
+		if err := reservations.UpdateStatus(c.Request.Context(), id, barberID, models.ReservationCompleted); err != nil {
 			respondError(c, err)
 			return
 		}
@@ -129,7 +169,8 @@ func CompleteReservationHandler(reservations repository.ReservationRepository) g
 func NoShowReservationHandler(reservations repository.ReservationRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
-		if err := reservations.UpdateStatus(c.Request.Context(), id, models.ReservationNoShow); err != nil {
+		barberID := c.GetString("user_id")
+		if err := reservations.UpdateStatus(c.Request.Context(), id, barberID, models.ReservationNoShow); err != nil {
 			respondError(c, err)
 			return
 		}

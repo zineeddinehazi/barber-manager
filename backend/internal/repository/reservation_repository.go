@@ -19,7 +19,7 @@ type ReservationRepository interface {
 	ListForCustomer(ctx context.Context, customerID string) ([]models.Reservation, error)
 	ListForBarber(ctx context.Context, barberID string, from, to time.Time) ([]models.Reservation, error)
 	ListForShop(ctx context.Context, shopID string, filter models.ReservationFilter) ([]models.Reservation, error)
-	UpdateStatus(ctx context.Context, id, status string) error
+	UpdateStatus(ctx context.Context, id, barberID, status string) error
 	Cancel(ctx context.Context, id, customerID string) error
 }
 
@@ -149,10 +149,13 @@ func scanReservations(rows pgx.Rows) ([]models.Reservation, error) {
 	return reservations, rows.Err()
 }
 
-func (r *PgReservationRepository) UpdateStatus(ctx context.Context, id, status string) error {
+func (r *PgReservationRepository) UpdateStatus(ctx context.Context, id, barberID, status string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	tag, err := r.Pool.Exec(ctx, `UPDATE reservations SET status = $1 WHERE id = $2`, status, id)
+	tag, err := r.Pool.Exec(ctx,
+		`UPDATE reservations SET status = $1 WHERE id = $2 AND barber_id = $3`,
+		status, id, barberID,
+	)
 	if err != nil {
 		return err
 	}

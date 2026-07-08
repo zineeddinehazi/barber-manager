@@ -48,3 +48,32 @@ func TestReservationRepository_OverlapExclusion(t *testing.T) {
 	})
 	assert.NoError(t, err)
 }
+
+// TestReservationRepository_UpdateStatus_ScopedToBarber is the regression
+// test for the cross-tenant reservation takeover bug: a barber (even one at
+// a different shop entirely) must not be able to complete/no-show a
+// reservation they don't own, just by knowing its ID.
+func TestReservationRepository_UpdateStatus_ScopedToBarber(t *testing.T) {
+	ctx := context.Background()
+	fx := seedFixtures(t, ctx, "resv2")
+	otherFx := seedFixtures(t, ctx, "resv2-other")
+
+	repo := repository.NewReservationRepository(testPool)
+
+	start := time.Now().Add(24 * time.Hour).Truncate(time.Hour)
+	res, err := repo.CreateReservation(ctx, models.ReservationCreateInput{
+		ShopID: fx.ShopID, BarberID: fx.BarberID, CustomerID: fx.CustomerID, ServiceID: fx.ServiceID,
+		StartsAt: start, EndsAt: start.Add(30 * time.Minute),
+	})
+	require.NoError(t, err)
+
+	err = repo.UpdateStatus(ctx, res.ID, otherFx.BarberID, models.ReservationCompleted)
+	assert.ErrorIs(t, err, repository.ErrNotFound)
+
+	err = repo.UpdateStatus(ctx, res.ID, fx.BarberID, models.ReservationCompleted)
+	require.NoError(t, err)
+
+	got, err := repo.GetReservation(ctx, res.ID)
+	require.NoError(t, err)
+	assert.Equal(t, models.ReservationCompleted, got.Status)
+}

@@ -101,17 +101,17 @@ func (mr *MockBarberRepositoryMockRecorder) RecalculateAvgRating(ctx, tx, barber
 }
 
 // SetActive mocks base method.
-func (m *MockBarberRepository) SetActive(ctx context.Context, barberID string, active bool) error {
+func (m *MockBarberRepository) SetActive(ctx context.Context, barberID, shopID string, active bool) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetActive", ctx, barberID, active)
+	ret := m.ctrl.Call(m, "SetActive", ctx, barberID, shopID, active)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // SetActive indicates an expected call of SetActive.
-func (mr *MockBarberRepositoryMockRecorder) SetActive(ctx, barberID, active any) *gomock.Call {
+func (mr *MockBarberRepositoryMockRecorder) SetActive(ctx, barberID, shopID, active any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetActive", reflect.TypeOf((*MockBarberRepository)(nil).SetActive), ctx, barberID, active)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetActive", reflect.TypeOf((*MockBarberRepository)(nil).SetActive), ctx, barberID, shopID, active)
 }
 
 // UpdateBio mocks base method.

@@ -67,14 +67,14 @@ func main() {
 	api.GET("/shops/:shopId/barbers/:barberId", handlers.GetBarberHandler(barberRepo))
 	api.GET("/shops/:shopId/services", handlers.ListShopServicesHandler(serviceRepo))
 	api.GET("/shops/:shopId/barbers/:barberId/availability",
-		handlers.GetAvailabilityHandler(shopRepo, scheduleRepo, serviceRepo, reservationRepo, loc))
+		handlers.GetAvailabilityHandler(shopRepo, scheduleRepo, serviceRepo, barberRepo, reservationRepo, loc))
 	api.GET("/barbers/:barberId/ratings", handlers.ListBarberRatingsHandler(ratingRepo))
 
 	// --- customer ---
 	customer := api.Group("")
 	customer.Use(middleware.Auth(cfg), middleware.RequireRole(models.RoleCustomer))
 	{
-		customer.POST("/reservations", handlers.CreateReservationHandler(reservationRepo, serviceRepo, barberRepo))
+		customer.POST("/reservations", handlers.CreateReservationHandler(reservationRepo, serviceRepo, barberRepo, shopRepo, scheduleRepo, loc))
 		customer.GET("/reservations/me", handlers.ListOwnReservationsHandler(reservationRepo))
 		customer.PATCH("/reservations/:id/cancel", handlers.CancelReservationHandler(reservationRepo))
 		customer.POST("/reservations/:id/rating", handlers.CreateRatingHandler(ratingRepo))
@@ -105,7 +105,7 @@ func main() {
 		owner.PUT("/hours", handlers.UpdateShopHoursHandler(shopRepo))
 		owner.POST("/barbers", handlers.CreateBarberHandler(userRepo, barberRepo))
 		owner.PATCH("/barbers/:barberId/status", handlers.SetBarberStatusHandler(barberRepo))
-		owner.POST("/services", handlers.CreateServiceHandler(serviceRepo))
+		owner.POST("/services", handlers.CreateServiceHandler(serviceRepo, barberRepo))
 		owner.GET("/approval-requests", handlers.ListPendingApprovalsHandler(approvalRepo))
 		owner.PATCH("/approval-requests/:requestId/approve", handlers.ApproveApprovalHandler(approvalRepo))
 		owner.PATCH("/approval-requests/:requestId/reject", handlers.RejectApprovalHandler(approvalRepo))

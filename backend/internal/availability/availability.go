@@ -35,59 +35,14 @@ func AvailableSlots(in Input) ([]Slot, error) {
 	if in.ServiceMinutes <= 0 {
 		return nil, fmt.Errorf("service duration must be positive")
 	}
-	loc := in.Location
-	if loc == nil {
-		loc = time.UTC
-	}
 	granularity := in.SlotGranularityMinutes
 	if granularity <= 0 {
 		granularity = defaultSlotGranularityMinutes
 	}
 
-	if in.ShopHours == nil || in.ShopHours.IsClosed {
-		return nil, nil
-	}
-
-	var workStart, workEnd string
-	switch {
-	case in.Exception != nil:
-		if !in.Exception.IsWorking {
-			return nil, nil
-		}
-		workStart, workEnd = in.Exception.StartTime, in.Exception.EndTime
-	case in.WorkSchedule != nil && in.WorkSchedule.IsWorking:
-		workStart, workEnd = in.WorkSchedule.StartTime, in.WorkSchedule.EndTime
-	default:
-		return nil, nil
-	}
-
-	shopOpen, err := timeOfDay(in.Date, loc, in.ShopHours.OpenTime)
-	if err != nil {
-		return nil, fmt.Errorf("parsing shop open time: %w", err)
-	}
-	shopClose, err := timeOfDay(in.Date, loc, in.ShopHours.CloseTime)
-	if err != nil {
-		return nil, fmt.Errorf("parsing shop close time: %w", err)
-	}
-	barberStart, err := timeOfDay(in.Date, loc, workStart)
-	if err != nil {
-		return nil, fmt.Errorf("parsing barber start time: %w", err)
-	}
-	barberEnd, err := timeOfDay(in.Date, loc, workEnd)
-	if err != nil {
-		return nil, fmt.Errorf("parsing barber end time: %w", err)
-	}
-
-	windowStart := shopOpen
-	if barberStart.After(windowStart) {
-		windowStart = barberStart
-	}
-	windowEnd := shopClose
-	if barberEnd.Before(windowEnd) {
-		windowEnd = barberEnd
-	}
-	if !windowStart.Before(windowEnd) {
-		return nil, nil
+	windowStart, windowEnd, ok, err := workingWindow(in)
+	if err != nil || !ok {
+		return nil, err
 	}
 
 	serviceDur := time.Duration(in.ServiceMinutes) * time.Minute
@@ -103,8 +58,83 @@ func AvailableSlots(in Input) ([]Slot, error) {
 	return slots, nil
 }
 
+// Contains reports whether [start, end) falls entirely within the barber's
+// working window for the day described by in (shop hours intersected with
+// the approved schedule/exception for in.Date) — used to re-validate a
+// booking request server-side against the same rules GetAvailabilityHandler
+// uses to display slots.
+func Contains(in Input, start, end time.Time) (bool, error) {
+	windowStart, windowEnd, ok, err := workingWindow(in)
+	if err != nil || !ok {
+		return false, err
+	}
+	return !start.Before(windowStart) && !end.After(windowEnd), nil
+}
+
+// workingWindow computes the barber's bookable [start, end) window on
+// in.Date: the shop's open hours intersected with the barber's approved
+// weekly schedule (or that date's one-off exception, which takes priority).
+// ok is false when the shop is closed, the barber isn't working, or the
+// intersection is empty.
+func workingWindow(in Input) (start, end time.Time, ok bool, err error) {
+	loc := in.Location
+	if loc == nil {
+		loc = time.UTC
+	}
+
+	if in.ShopHours == nil || in.ShopHours.IsClosed {
+		return time.Time{}, time.Time{}, false, nil
+	}
+
+	var workStart, workEnd string
+	switch {
+	case in.Exception != nil:
+		if !in.Exception.IsWorking {
+			return time.Time{}, time.Time{}, false, nil
+		}
+		workStart, workEnd = in.Exception.StartTime, in.Exception.EndTime
+	case in.WorkSchedule != nil && in.WorkSchedule.IsWorking:
+		workStart, workEnd = in.WorkSchedule.StartTime, in.WorkSchedule.EndTime
+	default:
+		return time.Time{}, time.Time{}, false, nil
+	}
+
+	shopOpen, err := timeOfDay(in.Date, loc, in.ShopHours.OpenTime)
+	if err != nil {
+		return time.Time{}, time.Time{}, false, fmt.Errorf("parsing shop open time: %w", err)
+	}
+	shopClose, err := timeOfDay(in.Date, loc, in.ShopHours.CloseTime)
+	if err != nil {
+		return time.Time{}, time.Time{}, false, fmt.Errorf("parsing shop close time: %w", err)
+	}
+	barberStart, err := timeOfDay(in.Date, loc, workStart)
+	if err != nil {
+		return time.Time{}, time.Time{}, false, fmt.Errorf("parsing barber start time: %w", err)
+	}
+	barberEnd, err := timeOfDay(in.Date, loc, workEnd)
+	if err != nil {
+		return time.Time{}, time.Time{}, false, fmt.Errorf("parsing barber end time: %w", err)
+	}
+
+	windowStart := shopOpen
+	if barberStart.After(windowStart) {
+		windowStart = barberStart
+	}
+	windowEnd := shopClose
+	if barberEnd.Before(windowEnd) {
+		windowEnd = barberEnd
+	}
+	if !windowStart.Before(windowEnd) {
+		return time.Time{}, time.Time{}, false, nil
+	}
+	return windowStart, windowEnd, true, nil
+}
+
 func overlapsAny(start, end time.Time, reservations []models.Reservation) bool {
 	for _, r := range reservations {
+		if r.Status == models.ReservationCancelled || r.Status == models.ReservationNoShow {
+			continue
+		}
 		if start.Before(r.EndsAt) && r.StartsAt.Before(end) {
 			return true
 		}

@@ -18,14 +18,41 @@ import (
 	"barbermanager/internal/repository/mocks"
 )
 
+// allDayHours/allDaySchedule cover every weekday open 00:00-23:59:59 so tests
+// using a relative time.Now()-based startsAt don't need to compute which
+// weekday it lands on.
+func allDayHours() []models.ShopHours {
+	hours := make([]models.ShopHours, 7)
+	for i := range hours {
+		hours[i] = models.ShopHours{Weekday: i, OpenTime: "00:00", CloseTime: "23:59:59"}
+	}
+	return hours
+}
+
+func allDaySchedule() []models.WorkSchedule {
+	sched := make([]models.WorkSchedule, 7)
+	for i := range sched {
+		sched[i] = models.WorkSchedule{Weekday: i, IsWorking: true, StartTime: "00:00", EndTime: "23:59:59"}
+	}
+	return sched
+}
+
 func TestCreateReservationHandler(t *testing.T) {
+	loc := time.UTC
 	futureStart := time.Now().Add(48 * time.Hour)
+
+	mockOpenSlot := func(m *mocks.MockShopRepository, ms *mocks.MockScheduleRepository) {
+		m.EXPECT().GetShopHours(gomock.Any(), "shop1").Return(allDayHours(), nil)
+		ms.EXPECT().GetApprovedSchedule(gomock.Any(), "b1").Return(allDaySchedule(), nil)
+		ms.EXPECT().GetException(gomock.Any(), "b1", gomock.Any()).Return(nil, repository.ErrNotFound)
+	}
 
 	tests := []struct {
 		name             string
 		startsAt         time.Time
 		mockServices     func(m *mocks.MockServiceRepository)
 		mockBarbers      func(m *mocks.MockBarberRepository)
+		mockShops        func(m *mocks.MockShopRepository, ms *mocks.MockScheduleRepository)
 		mockReservations func(m *mocks.MockReservationRepository)
 		wantStatus       int
 	}{
@@ -36,8 +63,9 @@ func TestCreateReservationHandler(t *testing.T) {
 				m.EXPECT().GetService(gomock.Any(), "svc1").Return(&models.Service{ID: "svc1", ShopID: "shop1", BarberID: strPtr("b1"), DurationMinutes: 30}, nil)
 			},
 			mockBarbers: func(m *mocks.MockBarberRepository) {
-				m.EXPECT().GetBarberProfile(gomock.Any(), "b1").Return(&models.BarberWithProfile{ID: "b1", ShopID: "shop1"}, nil)
+				m.EXPECT().GetBarberProfile(gomock.Any(), "b1").Return(&models.BarberWithProfile{ID: "b1", ShopID: "shop1", IsActive: true}, nil)
 			},
+			mockShops: mockOpenSlot,
 			mockReservations: func(m *mocks.MockReservationRepository) {
 				m.EXPECT().CreateReservation(gomock.Any(), gomock.Any()).Return(&models.Reservation{ID: "res1"}, nil)
 			},
@@ -50,8 +78,9 @@ func TestCreateReservationHandler(t *testing.T) {
 				m.EXPECT().GetService(gomock.Any(), "svc1").Return(&models.Service{ID: "svc1", ShopID: "shop1", DurationMinutes: 30}, nil)
 			},
 			mockBarbers: func(m *mocks.MockBarberRepository) {
-				m.EXPECT().GetBarberProfile(gomock.Any(), "b1").Return(&models.BarberWithProfile{ID: "b1", ShopID: "shop1"}, nil)
+				m.EXPECT().GetBarberProfile(gomock.Any(), "b1").Return(&models.BarberWithProfile{ID: "b1", ShopID: "shop1", IsActive: true}, nil)
 			},
+			mockShops: mockOpenSlot,
 			mockReservations: func(m *mocks.MockReservationRepository) {
 				m.EXPECT().CreateReservation(gomock.Any(), gomock.Any()).Return(nil, repository.ErrSlotUnavailable)
 			},
@@ -64,6 +93,7 @@ func TestCreateReservationHandler(t *testing.T) {
 				m.EXPECT().GetService(gomock.Any(), "svc1").Return(nil, repository.ErrNotFound)
 			},
 			mockBarbers:      func(m *mocks.MockBarberRepository) {},
+			mockShops:        func(m *mocks.MockShopRepository, ms *mocks.MockScheduleRepository) {},
 			mockReservations: func(m *mocks.MockReservationRepository) {},
 			wantStatus:       http.StatusNotFound,
 		},
@@ -74,6 +104,7 @@ func TestCreateReservationHandler(t *testing.T) {
 				m.EXPECT().GetService(gomock.Any(), "svc1").Return(&models.Service{ID: "svc1", ShopID: "shop1", BarberID: strPtr("someone-else")}, nil)
 			},
 			mockBarbers:      func(m *mocks.MockBarberRepository) {},
+			mockShops:        func(m *mocks.MockShopRepository, ms *mocks.MockScheduleRepository) {},
 			mockReservations: func(m *mocks.MockReservationRepository) {},
 			wantStatus:       http.StatusBadRequest,
 		},
@@ -86,6 +117,7 @@ func TestCreateReservationHandler(t *testing.T) {
 			mockBarbers: func(m *mocks.MockBarberRepository) {
 				m.EXPECT().GetBarberProfile(gomock.Any(), "b1").Return(&models.BarberWithProfile{ID: "b1", ShopID: "shop2"}, nil)
 			},
+			mockShops:        func(m *mocks.MockShopRepository, ms *mocks.MockScheduleRepository) {},
 			mockReservations: func(m *mocks.MockReservationRepository) {},
 			wantStatus:       http.StatusBadRequest,
 		},
@@ -94,6 +126,37 @@ func TestCreateReservationHandler(t *testing.T) {
 			startsAt:         time.Now().Add(-time.Hour),
 			mockServices:     func(m *mocks.MockServiceRepository) {},
 			mockBarbers:      func(m *mocks.MockBarberRepository) {},
+			mockShops:        func(m *mocks.MockShopRepository, ms *mocks.MockScheduleRepository) {},
+			mockReservations: func(m *mocks.MockReservationRepository) {},
+			wantStatus:       http.StatusBadRequest,
+		},
+		{
+			name:     "barber is not active",
+			startsAt: futureStart,
+			mockServices: func(m *mocks.MockServiceRepository) {
+				m.EXPECT().GetService(gomock.Any(), "svc1").Return(&models.Service{ID: "svc1", ShopID: "shop1", DurationMinutes: 30}, nil)
+			},
+			mockBarbers: func(m *mocks.MockBarberRepository) {
+				m.EXPECT().GetBarberProfile(gomock.Any(), "b1").Return(&models.BarberWithProfile{ID: "b1", ShopID: "shop1", IsActive: false}, nil)
+			},
+			mockShops:        func(m *mocks.MockShopRepository, ms *mocks.MockScheduleRepository) {},
+			mockReservations: func(m *mocks.MockReservationRepository) {},
+			wantStatus:       http.StatusBadRequest,
+		},
+		{
+			name:     "requested slot is outside the barber's working hours",
+			startsAt: futureStart,
+			mockServices: func(m *mocks.MockServiceRepository) {
+				m.EXPECT().GetService(gomock.Any(), "svc1").Return(&models.Service{ID: "svc1", ShopID: "shop1", DurationMinutes: 30}, nil)
+			},
+			mockBarbers: func(m *mocks.MockBarberRepository) {
+				m.EXPECT().GetBarberProfile(gomock.Any(), "b1").Return(&models.BarberWithProfile{ID: "b1", ShopID: "shop1", IsActive: true}, nil)
+			},
+			mockShops: func(m *mocks.MockShopRepository, ms *mocks.MockScheduleRepository) {
+				m.EXPECT().GetShopHours(gomock.Any(), "shop1").Return(nil, nil)
+				ms.EXPECT().GetApprovedSchedule(gomock.Any(), "b1").Return(nil, nil)
+				ms.EXPECT().GetException(gomock.Any(), "b1", gomock.Any()).Return(nil, repository.ErrNotFound)
+			},
 			mockReservations: func(m *mocks.MockReservationRepository) {},
 			wantStatus:       http.StatusBadRequest,
 		},
@@ -104,13 +167,17 @@ func TestCreateReservationHandler(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			mockServices := mocks.NewMockServiceRepository(ctrl)
 			mockBarbers := mocks.NewMockBarberRepository(ctrl)
+			mockShops := mocks.NewMockShopRepository(ctrl)
+			mockSchedules := mocks.NewMockScheduleRepository(ctrl)
 			mockReservations := mocks.NewMockReservationRepository(ctrl)
 			tt.mockServices(mockServices)
 			tt.mockBarbers(mockBarbers)
+			tt.mockShops(mockShops, mockSchedules)
 			tt.mockReservations(mockReservations)
 
 			router := gin.New()
-			router.POST("/reservations", withContext("cust1", models.RoleCustomer, ""), CreateReservationHandler(mockReservations, mockServices, mockBarbers))
+			router.POST("/reservations", withContext("cust1", models.RoleCustomer, ""),
+				CreateReservationHandler(mockReservations, mockServices, mockBarbers, mockShops, mockSchedules, loc))
 
 			in := models.ReservationCreateInput{BarberID: "b1", ServiceID: "svc1", StartsAt: tt.startsAt}
 			body, err := json.Marshal(in)
@@ -166,18 +233,43 @@ func TestCancelReservationHandler(t *testing.T) {
 }
 
 func TestCompleteReservationHandler(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	mockReservations := mocks.NewMockReservationRepository(ctrl)
-	mockReservations.EXPECT().UpdateStatus(gomock.Any(), "res1", models.ReservationCompleted).Return(nil)
+	tests := []struct {
+		name       string
+		mockSetup  func(m *mocks.MockReservationRepository)
+		wantStatus int
+	}{
+		{
+			name: "success",
+			mockSetup: func(m *mocks.MockReservationRepository) {
+				m.EXPECT().UpdateStatus(gomock.Any(), "res1", "b1", models.ReservationCompleted).Return(nil)
+			},
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name: "not found or belongs to a different barber",
+			mockSetup: func(m *mocks.MockReservationRepository) {
+				m.EXPECT().UpdateStatus(gomock.Any(), "res1", "b1", models.ReservationCompleted).Return(repository.ErrNotFound)
+			},
+			wantStatus: http.StatusNotFound,
+		},
+	}
 
-	router := gin.New()
-	router.PATCH("/barbers/me/reservations/:id/complete", CompleteReservationHandler(mockReservations))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockReservations := mocks.NewMockReservationRepository(ctrl)
+			tt.mockSetup(mockReservations)
 
-	req := httptest.NewRequest(http.MethodPatch, "/barbers/me/reservations/res1/complete", nil)
-	w := newRecorder()
-	router.ServeHTTP(w, req)
+			router := gin.New()
+			router.PATCH("/barbers/me/reservations/:id/complete", withContext("b1", models.RoleBarber, "shop1"), CompleteReservationHandler(mockReservations))
 
-	assert.Equal(t, http.StatusNoContent, w.Code)
+			req := httptest.NewRequest(http.MethodPatch, "/barbers/me/reservations/res1/complete", nil)
+			w := newRecorder()
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, tt.wantStatus, w.Code)
+		})
+	}
 }
 
 func TestListBarberReservationsHandler(t *testing.T) {

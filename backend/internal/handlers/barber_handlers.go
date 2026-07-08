@@ -121,13 +121,14 @@ type setBarberStatusInput struct {
 
 func SetBarberStatusHandler(barbers repository.BarberRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		shopID := c.Param("shopId")
 		barberID := c.Param("barberId")
 		var in setBarberStatusInput
 		if err := c.ShouldBindJSON(&in); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		if err := barbers.SetActive(c.Request.Context(), barberID, in.IsActive); err != nil {
+		if err := barbers.SetActive(c.Request.Context(), barberID, shopID, in.IsActive); err != nil {
 			respondError(c, err)
 			return
 		}

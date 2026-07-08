@@ -119,6 +119,54 @@ func TestAvailableSlots_ExcludesOverlappingReservations(t *testing.T) {
 	assert.Len(t, slots, 5)
 }
 
+func TestAvailableSlots_IgnoresCancelledAndNoShowReservations(t *testing.T) {
+	loc := time.UTC
+	reservationStart := time.Date(2026, 7, 8, 10, 0, 0, 0, loc)
+	reservationEnd := time.Date(2026, 7, 8, 10, 30, 0, 0, loc)
+
+	in := Input{
+		Date:      testDate,
+		Location:  loc,
+		ShopHours: &models.ShopHours{OpenTime: "09:00", CloseTime: "12:00"},
+		WorkSchedule: &models.WorkSchedule{
+			IsWorking: true, StartTime: "09:00", EndTime: "12:00",
+		},
+		Reservations: []models.Reservation{
+			{StartsAt: reservationStart, EndsAt: reservationEnd, Status: models.ReservationCancelled},
+			{StartsAt: reservationStart, EndsAt: reservationEnd, Status: models.ReservationNoShow},
+		},
+		ServiceMinutes:         30,
+		SlotGranularityMinutes: 30,
+	}
+	slots, err := AvailableSlots(in)
+	require.NoError(t, err)
+	// 09:00-12:00 in 30-min steps = 6 slots; cancelled/no_show reservations
+	// must not remove any of them.
+	assert.Len(t, slots, 6)
+}
+
+func TestContains_WithinWorkingWindow(t *testing.T) {
+	loc := time.UTC
+	in := Input{
+		Date:         testDate,
+		Location:     loc,
+		ShopHours:    &models.ShopHours{OpenTime: "09:00", CloseTime: "18:00"},
+		WorkSchedule: &models.WorkSchedule{IsWorking: true, StartTime: "09:00", EndTime: "17:00"},
+	}
+
+	within, err := Contains(in, time.Date(2026, 7, 8, 9, 30, 0, 0, loc), time.Date(2026, 7, 8, 10, 0, 0, 0, loc))
+	require.NoError(t, err)
+	assert.True(t, within)
+
+	within, err = Contains(in, time.Date(2026, 7, 8, 17, 30, 0, 0, loc), time.Date(2026, 7, 8, 18, 0, 0, 0, loc))
+	require.NoError(t, err)
+	assert.False(t, within, "outside barber's working hours even though the shop is still open")
+
+	within, err = Contains(in, time.Date(2026, 7, 8, 3, 0, 0, 0, loc), time.Date(2026, 7, 8, 3, 30, 0, 0, loc))
+	require.NoError(t, err)
+	assert.False(t, within, "outside shop hours")
+}
+
 func TestAvailableSlots_NoWorkScheduleNoException(t *testing.T) {
 	in := Input{
 		Date:           testDate,

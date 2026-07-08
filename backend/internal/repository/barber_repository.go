@@ -16,7 +16,7 @@ type BarberRepository interface {
 	ListActiveBarbers(ctx context.Context, shopID string) ([]models.BarberWithProfile, error)
 	GetBarberProfile(ctx context.Context, barberID string) (*models.BarberWithProfile, error)
 	UpdateBio(ctx context.Context, barberID, bio string) error
-	SetActive(ctx context.Context, barberID string, active bool) error
+	SetActive(ctx context.Context, barberID, shopID string, active bool) error
 	// RecalculateAvgRating must run inside the same transaction as a rating
 	// INSERT (see RatingRepository.CreateRating) so the aggregate never drifts.
 	RecalculateAvgRating(ctx context.Context, tx pgx.Tx, barberID string) error
@@ -102,10 +102,15 @@ func (r *PgBarberRepository) UpdateBio(ctx context.Context, barberID, bio string
 	return nil
 }
 
-func (r *PgBarberRepository) SetActive(ctx context.Context, barberID string, active bool) error {
+func (r *PgBarberRepository) SetActive(ctx context.Context, barberID, shopID string, active bool) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	tag, err := r.Pool.Exec(ctx, `UPDATE barber_profiles SET is_active = $1 WHERE user_id = $2`, active, barberID)
+	tag, err := r.Pool.Exec(ctx,
+		`UPDATE barber_profiles p SET is_active = $1
+		 FROM users u
+		 WHERE p.user_id = u.id AND u.id = $2 AND u.shop_id = $3`,
+		active, barberID, shopID,
+	)
 	if err != nil {
 		return err
 	}

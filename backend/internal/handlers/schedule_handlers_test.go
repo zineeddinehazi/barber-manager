@@ -106,12 +106,53 @@ func TestGetAvailabilityHandler(t *testing.T) {
 		mockShops := mocks.NewMockShopRepository(ctrl)
 		mockSchedules := mocks.NewMockScheduleRepository(ctrl)
 		mockServices := mocks.NewMockServiceRepository(ctrl)
+		mockBarbers := mocks.NewMockBarberRepository(ctrl)
 		mockReservations := mocks.NewMockReservationRepository(ctrl)
 
 		router := gin.New()
-		router.GET("/shops/:shopId/barbers/:barberId/availability", GetAvailabilityHandler(mockShops, mockSchedules, mockServices, mockReservations, loc))
+		router.GET("/shops/:shopId/barbers/:barberId/availability", GetAvailabilityHandler(mockShops, mockSchedules, mockServices, mockBarbers, mockReservations, loc))
 
 		req := httptest.NewRequest(http.MethodGet, "/shops/shop1/barbers/b1/availability", nil)
+		w := newRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("barber not found", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mockShops := mocks.NewMockShopRepository(ctrl)
+		mockSchedules := mocks.NewMockScheduleRepository(ctrl)
+		mockServices := mocks.NewMockServiceRepository(ctrl)
+		mockBarbers := mocks.NewMockBarberRepository(ctrl)
+		mockReservations := mocks.NewMockReservationRepository(ctrl)
+
+		mockBarbers.EXPECT().GetBarberProfile(gomock.Any(), "b1").Return(nil, repository.ErrNotFound)
+
+		router := gin.New()
+		router.GET("/shops/:shopId/barbers/:barberId/availability", GetAvailabilityHandler(mockShops, mockSchedules, mockServices, mockBarbers, mockReservations, loc))
+
+		req := httptest.NewRequest(http.MethodGet, "/shops/shop1/barbers/b1/availability?serviceId=svc1&date=2026-07-08", nil)
+		w := newRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusNotFound, w.Code)
+	})
+
+	t.Run("barber does not work at this shop", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mockShops := mocks.NewMockShopRepository(ctrl)
+		mockSchedules := mocks.NewMockScheduleRepository(ctrl)
+		mockServices := mocks.NewMockServiceRepository(ctrl)
+		mockBarbers := mocks.NewMockBarberRepository(ctrl)
+		mockReservations := mocks.NewMockReservationRepository(ctrl)
+
+		mockBarbers.EXPECT().GetBarberProfile(gomock.Any(), "b1").Return(&models.BarberWithProfile{ID: "b1", ShopID: "shop2"}, nil)
+
+		router := gin.New()
+		router.GET("/shops/:shopId/barbers/:barberId/availability", GetAvailabilityHandler(mockShops, mockSchedules, mockServices, mockBarbers, mockReservations, loc))
+
+		req := httptest.NewRequest(http.MethodGet, "/shops/shop1/barbers/b1/availability?serviceId=svc1&date=2026-07-08", nil)
 		w := newRecorder()
 		router.ServeHTTP(w, req)
 
@@ -123,12 +164,14 @@ func TestGetAvailabilityHandler(t *testing.T) {
 		mockShops := mocks.NewMockShopRepository(ctrl)
 		mockSchedules := mocks.NewMockScheduleRepository(ctrl)
 		mockServices := mocks.NewMockServiceRepository(ctrl)
+		mockBarbers := mocks.NewMockBarberRepository(ctrl)
 		mockReservations := mocks.NewMockReservationRepository(ctrl)
 
+		mockBarbers.EXPECT().GetBarberProfile(gomock.Any(), "b1").Return(&models.BarberWithProfile{ID: "b1", ShopID: "shop1"}, nil)
 		mockServices.EXPECT().GetService(gomock.Any(), "svc1").Return(nil, repository.ErrNotFound)
 
 		router := gin.New()
-		router.GET("/shops/:shopId/barbers/:barberId/availability", GetAvailabilityHandler(mockShops, mockSchedules, mockServices, mockReservations, loc))
+		router.GET("/shops/:shopId/barbers/:barberId/availability", GetAvailabilityHandler(mockShops, mockSchedules, mockServices, mockBarbers, mockReservations, loc))
 
 		req := httptest.NewRequest(http.MethodGet, "/shops/shop1/barbers/b1/availability?serviceId=svc1&date=2026-07-08", nil)
 		w := newRecorder()
@@ -137,14 +180,37 @@ func TestGetAvailabilityHandler(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
 
+	t.Run("service does not belong to the requested barber", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mockShops := mocks.NewMockShopRepository(ctrl)
+		mockSchedules := mocks.NewMockScheduleRepository(ctrl)
+		mockServices := mocks.NewMockServiceRepository(ctrl)
+		mockBarbers := mocks.NewMockBarberRepository(ctrl)
+		mockReservations := mocks.NewMockReservationRepository(ctrl)
+
+		mockBarbers.EXPECT().GetBarberProfile(gomock.Any(), "b1").Return(&models.BarberWithProfile{ID: "b1", ShopID: "shop1"}, nil)
+		mockServices.EXPECT().GetService(gomock.Any(), "svc1").Return(&models.Service{ID: "svc1", ShopID: "shop1", BarberID: strPtr("someone-else")}, nil)
+
+		router := gin.New()
+		router.GET("/shops/:shopId/barbers/:barberId/availability", GetAvailabilityHandler(mockShops, mockSchedules, mockServices, mockBarbers, mockReservations, loc))
+
+		req := httptest.NewRequest(http.MethodGet, "/shops/shop1/barbers/b1/availability?serviceId=svc1&date=2026-07-08", nil)
+		w := newRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
 	t.Run("success", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		mockShops := mocks.NewMockShopRepository(ctrl)
 		mockSchedules := mocks.NewMockScheduleRepository(ctrl)
 		mockServices := mocks.NewMockServiceRepository(ctrl)
+		mockBarbers := mocks.NewMockBarberRepository(ctrl)
 		mockReservations := mocks.NewMockReservationRepository(ctrl)
 
-		mockServices.EXPECT().GetService(gomock.Any(), "svc1").Return(&models.Service{ID: "svc1", DurationMinutes: 30}, nil)
+		mockBarbers.EXPECT().GetBarberProfile(gomock.Any(), "b1").Return(&models.BarberWithProfile{ID: "b1", ShopID: "shop1"}, nil)
+		mockServices.EXPECT().GetService(gomock.Any(), "svc1").Return(&models.Service{ID: "svc1", ShopID: "shop1", DurationMinutes: 30}, nil)
 		mockShops.EXPECT().GetShopHours(gomock.Any(), "shop1").Return([]models.ShopHours{
 			{Weekday: 3, OpenTime: "09:00", CloseTime: "18:00"},
 		}, nil)
@@ -155,7 +221,7 @@ func TestGetAvailabilityHandler(t *testing.T) {
 		mockReservations.EXPECT().ListForBarber(gomock.Any(), "b1", gomock.Any(), gomock.Any()).Return([]models.Reservation{}, nil)
 
 		router := gin.New()
-		router.GET("/shops/:shopId/barbers/:barberId/availability", GetAvailabilityHandler(mockShops, mockSchedules, mockServices, mockReservations, loc))
+		router.GET("/shops/:shopId/barbers/:barberId/availability", GetAvailabilityHandler(mockShops, mockSchedules, mockServices, mockBarbers, mockReservations, loc))
 
 		// 2026-07-08 is a Wednesday (weekday 3)
 		req := httptest.NewRequest(http.MethodGet, "/shops/shop1/barbers/b1/availability?serviceId=svc1&date=2026-07-08", nil)

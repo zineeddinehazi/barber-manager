@@ -132,15 +132,15 @@ func (mr *MockReservationRepositoryMockRecorder) ListForShop(ctx, shopID, filter
 }
 
 // UpdateStatus mocks base method.
-func (m *MockReservationRepository) UpdateStatus(ctx context.Context, id, status string) error {
+func (m *MockReservationRepository) UpdateStatus(ctx context.Context, id, barberID, status string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateStatus", ctx, id, status)
+	ret := m.ctrl.Call(m, "UpdateStatus", ctx, id, barberID, status)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // UpdateStatus indicates an expected call of UpdateStatus.
-func (mr *MockReservationRepositoryMockRecorder) UpdateStatus(ctx, id, status any) *gomock.Call {
+func (mr *MockReservationRepositoryMockRecorder) UpdateStatus(ctx, id, barberID, status any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateStatus", reflect.TypeOf((*MockReservationRepository)(nil).UpdateStatus), ctx, id, status)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateStatus", reflect.TypeOf((*MockReservationRepository)(nil).UpdateStatus), ctx, id, barberID, status)
 }
